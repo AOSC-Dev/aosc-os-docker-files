@@ -134,13 +134,13 @@ jobs:
             org.opencontainers.image.source=${{ github.repositoryUrl }}
 
       - name: Save tag info
-        if: steps.release-info.outputs.found == 'true' && (steps.check-tag.outputs.tag == 'not found' || github.event.inputs.force_build == 'true')
+        if: steps.release-info.outputs.found == 'true'
         run: |
           mkdir -p tags
           echo "${{ steps.image-info.outputs.versioned_tag }}" > tags/${{ steps.image-info.outputs.versioned_tag }}
 
       - name: Upload tag artifact
-        if: steps.release-info.outputs.found == 'true' && (steps.check-tag.outputs.tag == 'not found' || github.event.inputs.force_build == 'true')
+        if: steps.release-info.outputs.found == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: tag-${{ matrix.variant }}-${{ matrix.aosc_arch }}
