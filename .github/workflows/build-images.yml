@@ -42,7 +42,7 @@ jobs:
             docker_platform: "linux/loong64"
           - aosc_arch: "loongson3"
             docker_platform: "linux/mips64le/loongson3"
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -57,30 +57,52 @@ jobs:
         run: |
           # Convert variant to lowercase for tag
           VARIANT_LOWER=$(echo "${{ matrix.variant }}" | tr '[:upper:]' '[:lower:]')
-          
+
           # Generate primary tag with date
           VERSIONED_TAG="${VARIANT_LOWER}-${{ steps.release-info.outputs.date }}-${{ matrix.aosc_arch }}"
-          
+
           # Generate complete tags list
           # We ONLY push the arch-specific tag here. 
           TAGS="${{ env.REGISTRY }}/${{ vars.DOCKER_REPO }}:${VERSIONED_TAG}"
-          
+
           echo "versioned_tag=${VERSIONED_TAG}" >> $GITHUB_OUTPUT
           echo "tags<<EOF" >> $GITHUB_OUTPUT
           echo "${TAGS}" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
-          
+
           echo "Will build with tags:"
           echo "${TAGS}"
 
       - name: Check if Docker tag exists
         id: check-tag
         if: steps.release-info.outputs.found == 'true'
-        uses: tyriis/docker-image-tag-exists@v2026.6.0
-        with:
-          registry: ${{ env.REGISTRY }}
-          repository: ${{ vars.DOCKER_REPO }}
-          tag: ${{ steps.image-info.outputs.versioned_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          image="${{ env.REGISTRY }}/${{ vars.DOCKER_REPO }}:${{ steps.image-info.outputs.versioned_tag }}"
+          if output=$(docker manifest inspect "$image" 2>&1); then
+            if ! jq -e '
+              .schemaVersion == 2 and
+              (
+                (.manifests | type == "array") or
+                ((.config | type == "object") and (.layers | type == "array"))
+              )
+            ' <<< "$output" >/dev/null; then
+              echo "Invalid manifest for $image" >&2
+              exit 1
+            fi
+
+            echo "Docker image tag found: $image"
+            echo "tag=found" >> "$GITHUB_OUTPUT"
+          elif grep -Eiq 'no such manifest|manifest unknown|manifest.*not found' <<< "$output"; then
+            echo "Docker image tag does not found: $image"
+            echo "tag=not found" >> "$GITHUB_OUTPUT"
+          else
+            echo "docker manifest inspect failed for $image:" >&2
+            echo "$output" >&2
+            exit 1
+          fi
 
       - name: Set up QEMU
         if: steps.release-info.outputs.found == 'true' && (steps.check-tag.outputs.tag == 'not found' || github.event.inputs.force_build == 'true')
@@ -110,7 +132,7 @@ jobs:
           ENV CONT_IMG_VER=${{ steps.release-info.outputs.date }}
           RUN sed -i 's/no_check_dbus = false/no_check_dbus = true/' /etc/oma.toml
           EOF
-          
+
           echo "Generated Dockerfile:"
           cat Dockerfile
 
@@ -154,7 +176,7 @@ jobs:
     permissions:
       packages: write
       contents: read
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
