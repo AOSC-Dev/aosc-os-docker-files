@@ -42,10 +42,10 @@ jobs:
             docker_platform: "linux/loong64"
           - aosc_arch: "loongson3"
             docker_platform: "linux/mips64le/loongson3"
-    
+
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Check for latest release
         id: release-info
@@ -57,42 +57,64 @@ jobs:
         run: |
           # Convert variant to lowercase for tag
           VARIANT_LOWER=$(echo "${{ matrix.variant }}" | tr '[:upper:]' '[:lower:]')
-          
+
           # Generate primary tag with date
           VERSIONED_TAG="${VARIANT_LOWER}-${{ steps.release-info.outputs.date }}-${{ matrix.aosc_arch }}"
-          
+
           # Generate complete tags list
           # We ONLY push the arch-specific tag here. 
           TAGS="${{ env.REGISTRY }}/${{ vars.DOCKER_REPO }}:${VERSIONED_TAG}"
-          
+
           echo "versioned_tag=${VERSIONED_TAG}" >> $GITHUB_OUTPUT
           echo "tags<<EOF" >> $GITHUB_OUTPUT
           echo "${TAGS}" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
-          
+
           echo "Will build with tags:"
           echo "${TAGS}"
 
       - name: Check if Docker tag exists
         id: check-tag
         if: steps.release-info.outputs.found == 'true'
-        uses: tyriis/docker-image-tag-exists@v2026.6.0
-        with:
-          registry: ${{ env.REGISTRY }}
-          repository: ${{ vars.DOCKER_REPO }}
-          tag: ${{ steps.image-info.outputs.versioned_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          image="${{ env.REGISTRY }}/${{ vars.DOCKER_REPO }}:${{ steps.image-info.outputs.versioned_tag }}"
+          if output=$(docker manifest inspect "$image" 2>&1); then
+            if ! jq -e '
+              .schemaVersion == 2 and
+              (
+                (.manifests | type == "array") or
+                ((.config | type == "object") and (.layers | type == "array"))
+              )
+            ' <<< "$output" >/dev/null; then
+              echo "Invalid manifest for $image" >&2
+              exit 1
+            fi
+
+            echo "Docker image tag found: $image"
+            echo "tag=found" >> "$GITHUB_OUTPUT"
+          elif grep -Eiq 'no such manifest|manifest unknown|manifest.*not found' <<< "$output"; then
+            echo "Docker image tag does not found: $image"
+            echo "tag=not found" >> "$GITHUB_OUTPUT"
+          else
+            echo "docker manifest inspect failed for $image:" >&2
+            echo "$output" >&2
+            exit 1
+          fi
 
       - name: Set up QEMU
         if: steps.release-info.outputs.found == 'true' && (steps.check-tag.outputs.tag == 'not found' || github.event.inputs.force_build == 'true')
-        uses: docker/setup-qemu-action@v4
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
 
       - name: Set up Docker Buildx
         if: steps.release-info.outputs.found == 'true' && (steps.check-tag.outputs.tag == 'not found' || github.event.inputs.force_build == 'true')
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Log in to Docker Hub
         if: steps.release-info.outputs.found == 'true' && (steps.check-tag.outputs.tag == 'not found' || github.event.inputs.force_build == 'true')
-        uses: docker/login-action@v4
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.DOCKER_USERNAME }}
@@ -110,13 +132,13 @@ jobs:
           ENV CONT_IMG_VER=${{ steps.release-info.outputs.date }}
           RUN sed -i 's/no_check_dbus = false/no_check_dbus = true/' /etc/oma.toml
           EOF
-          
+
           echo "Generated Dockerfile:"
           cat Dockerfile
 
       - name: Build and push Docker image
         if: steps.release-info.outputs.found == 'true' && (steps.check-tag.outputs.tag == 'not found' || github.event.inputs.force_build == 'true')
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: ./Dockerfile
@@ -141,7 +163,7 @@ jobs:
 
       - name: Upload tag artifact
         if: steps.release-info.outputs.found == 'true'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: tag-${{ matrix.variant }}-${{ matrix.aosc_arch }}
           path: tags/
@@ -154,23 +176,23 @@ jobs:
     permissions:
       packages: write
       contents: read
-    
+
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v4
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PAT }}
 
       - name: Download tag artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: tag-*
           path: downloaded-tags
